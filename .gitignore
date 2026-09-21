@@ -60,6 +60,7 @@ cover/
 *.log
 local_settings.py
 db.sqlite3
+bot.sqlite3
 db.sqlite3-journal
 
 # Flask stuff:
@@ -218,3 +219,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+*.lock
