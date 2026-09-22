@@ -1,4 +1,5 @@
 from aiogram import Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import ChatMemberUpdated, Message
 
 from handler.common import GROUP_TYPES, is_group, sender
@@ -7,6 +8,22 @@ from service.users import user_service
 
 
 router = Router(name="events")
+
+
+@router.my_chat_member()
+async def observe_bot_join(event: ChatMemberUpdated) -> None:
+    if event.chat.type not in GROUP_TYPES:
+        return
+    if is_active_member(event.old_chat_member) or not is_active_member(event.new_chat_member):
+        return
+
+    users = [event.from_user]
+    try:
+        administrators = await event.bot.get_chat_administrators(event.chat.id)
+    except TelegramAPIError:
+        administrators = []
+    users.extend(member.user for member in administrators)
+    await user_service.remember_many(event.chat.id, users)
 
 
 @router.message()

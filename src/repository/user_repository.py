@@ -26,13 +26,38 @@ class UserRepository:
                 index_elements=[GroupUser.chat_id, GroupUser.user_id],
                 set_={
                     "is_active": True,
+                    "username": statement.excluded.username,
                 },
             )
         )
 
+    async def get_by_username(self, chat_id: int, username: str) -> GroupUser | None:
+        result = await self.session.scalars(
+            select(GroupUser)
+            .where(
+                GroupUser.chat_id == chat_id,
+                func.lower(GroupUser.username) == username.lower(),
+            )
+            .limit(2)
+        )
+        users = list(result)
+        if len(users) > 1:
+            raise AmbiguousUsernameError(username)
+        return users[0] if users else None
+
+    async def _ensure_username_available(
+        self, chat_id: int, user_id: int, username: str | None
+    ) -> None:
+        if username is None:
+            return
+        existing = await self.get_by_username(chat_id, username)
+        if existing is not None and existing.user_id != user_id:
+            raise UsernameInUseError(username)
+
     async def add_manual(
         self, chat_id: int, user_id: int, first_name: str, username: str | None
     ) -> bool:
+        await self._ensure_username_available(chat_id, user_id, username)
         statement = insert(GroupUser).values(
             chat_id=chat_id,
             user_id=user_id,
@@ -57,6 +82,7 @@ class UserRepository:
     async def update_details(
         self, chat_id: int, user_id: int, first_name: str, username: str | None
     ) -> bool:
+        await self._ensure_username_available(chat_id, user_id, username)
         result = await self.session.execute(
             update(GroupUser)
             .where(GroupUser.chat_id == chat_id, GroupUser.user_id == user_id)
@@ -120,3 +146,11 @@ class UserRepository:
             .order_by(func.random())
             .limit(1)
         )
+
+
+class AmbiguousUsernameError(LookupError):
+    pass
+
+
+class UsernameInUseError(ValueError):
+    pass

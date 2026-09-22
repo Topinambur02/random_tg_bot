@@ -24,7 +24,10 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     try:
-        await dp.start_polling(bot, allowed_updates=["message", "chat_member", "callback_query"])
+        await dp.start_polling(
+            bot,
+            allowed_updates=["message", "chat_member", "my_chat_member", "callback_query"],
+        )
     finally:
         await db_manager.close()
 

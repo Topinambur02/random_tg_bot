@@ -5,7 +5,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from handler.common import is_group, remember_sender, sender
+from repository.user_repository import AmbiguousUsernameError
 from service.membership import is_active_member
+from service.usernames import parse_username
 from service.users import user_service
 
 
@@ -13,11 +15,11 @@ router = Router(name="commands")
 HELP = (
     "Добавьте меня в группу. Команды в группе:\n"
     "/random — выбрать случайного участника\n"
-    "/exclude ID — исключить участника из выбора\n"
-    "/include ID — вернуть участника в выбор\n"
+    "/exclude @username — исключить участника из выбора\n"
+    "/include @username — вернуть участника в выбор\n"
     "/admin — управление списком\n"
-    "ID можно посмотреть через /admin → Список. Команды также работают "
-    "ответом на сообщение; без ID или ответа они меняют ваше участие."
+    "Username можно посмотреть через /admin → Список. Команды также работают "
+    "ответом на сообщение; без имени или ответа они меняют ваше участие."
 )
 
 
@@ -52,16 +54,15 @@ async def change_participation(message: Message, excluded: bool) -> None:
         return
     text = message.text or message.caption or ""
     arguments = text.split(maxsplit=1)
-    target_id: int | None = None
+    username: str | None = None
     if len(arguments) == 2:
-        argument = arguments[1].strip()
-        if not argument.isdigit() or int(argument) <= 0:
-            await message.answer("Укажите числовой ID участника или ответьте на его сообщение.")
+        username = parse_username(arguments[1])
+        if username is None:
+            await message.answer("Укажите @username участника или ответьте на его сообщение.")
             return
-        target_id = int(argument)
     target = actor
     reply = message.reply_to_message
-    if reply is not None and target_id is None:
+    if reply is not None and username is None:
         target = sender(reply)
         if target is None:
             await message.answer("Ответьте на сообщение человека.")
@@ -70,12 +71,16 @@ async def change_participation(message: Message, excluded: bool) -> None:
         if not is_active_member(target_member):
             await message.answer("Этот пользователь больше не состоит в группе.")
             return
-    if target_id is not None:
-        selected = await user_service.set_participation_by_id(
-            message.chat.id, actor, target_id, excluded
-        )
+    if username is not None:
+        try:
+            selected = await user_service.set_participation_by_username(
+                message.chat.id, actor, username, excluded
+            )
+        except AmbiguousUsernameError:
+            await message.answer("В базе несколько записей с этим @username. Уточните данные в панели.")
+            return
         if selected is None:
-            await message.answer("Участник с таким ID не найден в активном списке этой группы.")
+            await message.answer("Участник с таким @username не найден в активном списке этой группы.")
             return
         name = selected.first_name
     else:
