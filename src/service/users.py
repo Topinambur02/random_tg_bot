@@ -32,6 +32,19 @@ class UserService:
                 await repo.remember(chat_id, target)
             return await repo.set_excluded(chat_id, target.id, excluded)
 
+    async def set_participation_by_id(
+        self, chat_id: int, sender: User, target_id: int, excluded: bool
+    ) -> GroupUser | None:
+        async with self.database.get_session() as session:
+            repo = UserRepository(session)
+            await repo.remember(chat_id, sender)
+            target = await repo.get_user(chat_id, target_id)
+            if target is None or not target.is_active:
+                return None
+            if not await repo.set_excluded(chat_id, target_id, excluded):
+                return None
+            return target
+
     async def observe_message(
         self,
         chat_id: int,

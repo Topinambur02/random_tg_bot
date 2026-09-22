@@ -13,11 +13,11 @@ router = Router(name="commands")
 HELP = (
     "Добавьте меня в группу. Команды в группе:\n"
     "/random — выбрать случайного участника\n"
-    "/exclude — исключить себя из выбора\n"
-    "/include — снова участвовать\n"
+    "/exclude ID — исключить участника из выбора\n"
+    "/include ID — вернуть участника в выбор\n"
     "/admin — управление списком\n"
-    "Любой участник может ответить на сообщение другого командой "
-    "/exclude или /include, чтобы изменить его участие."
+    "ID можно посмотреть через /admin → Список. Команды также работают "
+    "ответом на сообщение; без ID или ответа они меняют ваше участие."
 )
 
 
@@ -50,9 +50,18 @@ async def change_participation(message: Message, excluded: bool) -> None:
     if actor is None:
         await message.answer("Не удалось определить пользователя.")
         return
+    text = message.text or message.caption or ""
+    arguments = text.split(maxsplit=1)
+    target_id: int | None = None
+    if len(arguments) == 2:
+        argument = arguments[1].strip()
+        if not argument.isdigit() or int(argument) <= 0:
+            await message.answer("Укажите числовой ID участника или ответьте на его сообщение.")
+            return
+        target_id = int(argument)
     target = actor
     reply = message.reply_to_message
-    if reply is not None:
+    if reply is not None and target_id is None:
         target = sender(reply)
         if target is None:
             await message.answer("Ответьте на сообщение человека.")
@@ -61,14 +70,24 @@ async def change_participation(message: Message, excluded: bool) -> None:
         if not is_active_member(target_member):
             await message.answer("Этот пользователь больше не состоит в группе.")
             return
-    changed = await user_service.set_participation(
-        message.chat.id, actor, target, excluded
-    )
-    if not changed:
-        await message.answer("Участник не найден в списке.")
-        return
+    if target_id is not None:
+        selected = await user_service.set_participation_by_id(
+            message.chat.id, actor, target_id, excluded
+        )
+        if selected is None:
+            await message.answer("Участник с таким ID не найден в активном списке этой группы.")
+            return
+        name = selected.first_name
+    else:
+        changed = await user_service.set_participation(
+            message.chat.id, actor, target, excluded
+        )
+        if not changed:
+            await message.answer("Участник не найден в списке.")
+            return
+        name = target.first_name
     action = "исключён из выбора" if excluded else "снова участвует в выборе"
-    await message.answer(f"{escape(target.first_name)} {action}.")
+    await message.answer(f"{escape(name)} {action}.")
 
 
 @router.message(Command("exclude"))

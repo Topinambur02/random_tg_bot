@@ -21,6 +21,8 @@ class AdminState(StatesGroup):
     adding = State()
     updating = State()
     deleting = State()
+    excluding = State()
+    including = State()
 
 
 def admin_keyboard() -> InlineKeyboardMarkup:
@@ -31,6 +33,10 @@ def admin_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Обновить", callback_data="admin:update"),
         ],
         [InlineKeyboardButton(text="Удалить", callback_data="admin:delete")],
+        [
+            InlineKeyboardButton(text="Исключить", callback_data="admin:exclude"),
+            InlineKeyboardButton(text="Вернуть", callback_data="admin:include"),
+        ],
     ])
 
 
@@ -109,7 +115,7 @@ async def admin_callback(query: CallbackQuery, state: FSMContext) -> None:
             [InlineKeyboardButton(text="Меню", callback_data="admin:menu")],
         ])
         await query.bot.send_message(chat_id, "\n".join(lines), reply_markup=keyboard)
-    elif action[1] in {"add", "update", "delete"}:
+    elif action[1] in {"add", "update", "delete", "exclude", "include"}:
         await state.clear()
         if action[1] == "add":
             await state.set_state(AdminState.adding)
@@ -117,9 +123,15 @@ async def admin_callback(query: CallbackQuery, state: FSMContext) -> None:
         elif action[1] == "update":
             await state.set_state(AdminState.updating)
             prompt = "Пришлите: ID | Новое имя | @username. Для удаления username поставьте -. Для отмены: /cancel"
-        else:
+        elif action[1] == "delete":
             await state.set_state(AdminState.deleting)
             prompt = "Пришлите ID пользователя для удаления. Для отмены: /cancel"
+        elif action[1] == "exclude":
+            await state.set_state(AdminState.excluding)
+            prompt = "Пришлите ID участника, которого нужно исключить из выбора. Для отмены: /cancel"
+        else:
+            await state.set_state(AdminState.including)
+            prompt = "Пришлите ID участника, которого нужно вернуть в выбор. Для отмены: /cancel"
         await query.bot.send_message(chat_id, prompt)
     elif action[1] == "confirm" and len(action) == 4:
         try:
@@ -146,16 +158,42 @@ async def admin_callback(query: CallbackQuery, state: FSMContext) -> None:
     await query.answer()
 
 
-@router.message(StateFilter(AdminState.adding, AdminState.updating, AdminState.deleting))
+@router.message(StateFilter(
+    AdminState.adding,
+    AdminState.updating,
+    AdminState.deleting,
+    AdminState.excluding,
+    AdminState.including,
+))
 async def admin_input(message: Message, state: FSMContext) -> None:
-    if not is_group(message) or sender(message) is None:
+    actor = sender(message)
+    if not is_group(message) or actor is None:
         return
     current_state = await state.get_state()
-    if current_state == AdminState.deleting.state:
+    if current_state in {
+        AdminState.deleting.state,
+        AdminState.excluding.state,
+        AdminState.including.state,
+    }:
         if not message.text or not message.text.strip().isdigit() or int(message.text.strip()) <= 0:
             await message.answer("Пришлите числовой ID пользователя.")
             return
         user_id = int(message.text.strip())
+        if current_state in {AdminState.excluding.state, AdminState.including.state}:
+            excluded = current_state == AdminState.excluding.state
+            target = await user_service.set_participation_by_id(
+                message.chat.id, actor, user_id, excluded
+            )
+            if target is None:
+                await message.answer("Участник с таким ID не найден в активном списке этой группы.")
+                return
+            await state.clear()
+            action = "исключён из выбора" if excluded else "снова участвует в выборе"
+            await message.answer(
+                f"{escape(target.first_name)} {action}.",
+                reply_markup=admin_keyboard(),
+            )
+            return
         user = await user_service.get_user(message.chat.id, user_id)
         if user is None:
             await message.answer("Запись не найдена. Пришлите другой ID или /cancel.")
