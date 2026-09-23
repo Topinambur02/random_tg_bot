@@ -15,10 +15,11 @@ router = Router(name="commands")
 HELP = (
     "Добавьте меня в группу. Команды в группе:\n"
     "/random — выбрать случайного участника\n"
+    "/queue — выбрать следующего участника по очереди\n"
     "/exclude @username — исключить участника из выбора\n"
     "/include @username — вернуть участника в выбор\n"
     "/admin — управление списком\n"
-    "Username можно посмотреть через /admin → Список. Команды также работают "
+    "Username можно посмотреть через /admin → Участники. Команды также работают "
     "ответом на сообщение; без имени или ответа они меняют ваше участие."
 )
 
@@ -41,6 +42,21 @@ async def random_person(message: Message) -> None:
     name = escape(person.first_name)
     await message.answer(
         f'Случайный участник: <a href="tg://user?id={person.user_id}">{name}</a>'
+    )
+
+
+@router.message(Command("queue"))
+async def next_in_queue(message: Message) -> None:
+    if not is_group(message):
+        await message.answer("Команда работает только в группе.")
+        return
+    person = await user_service.next_queued_user(message.chat.id, sender(message))
+    if person is None:
+        await message.answer("Пока нет других участников для очереди.")
+        return
+    name = escape(person.first_name)
+    await message.answer(
+        f'Следующий в очереди: <a href="tg://user?id={person.user_id}">{name}</a>'
     )
 
 

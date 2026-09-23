@@ -30,6 +30,17 @@ class UserService:
                 chat_id, excluded_user_id=sender.id if sender is not None else None
             )
 
+    async def next_queued_user(
+        self, chat_id: int, sender: User | None
+    ) -> GroupUser | None:
+        async with self.database.get_session() as session:
+            repo = UserRepository(session)
+            if sender is not None:
+                await repo.remember(chat_id, sender)
+            return await repo.next_queued_user(
+                chat_id, excluded_user_id=sender.id if sender is not None else None
+            )
+
     async def set_participation(
         self, chat_id: int, sender: User, target: User, excluded: bool
     ) -> bool:

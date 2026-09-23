@@ -3,7 +3,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import GroupUser
+from db.models import GroupQueueState, GroupUser
 
 
 class UserRepository:
@@ -151,6 +151,49 @@ class UserRepository:
             .order_by(func.random())
             .limit(1)
         )
+
+    async def next_queued_user(
+        self, chat_id: int, excluded_user_id: int | None = None
+    ) -> GroupUser | None:
+        result = await self.session.scalars(
+            select(GroupUser).where(
+                GroupUser.chat_id == chat_id,
+                GroupUser.is_active.is_(True),
+                GroupUser.is_excluded.is_(False),
+            )
+        )
+        users = sorted(
+            result, key=lambda user: (user.first_name.casefold(), user.user_id)
+        )
+        candidates = [user for user in users if user.user_id != excluded_user_id]
+        if not candidates:
+            return None
+
+        state = await self.session.get(GroupQueueState, chat_id)
+        start = 0
+        if state is not None:
+            for index, user in enumerate(users):
+                if user.user_id == state.last_user_id:
+                    start = (index + 1) % len(users)
+                    break
+
+        selected = candidates[0]
+        for offset in range(len(users)):
+            candidate = users[(start + offset) % len(users)]
+            if candidate.user_id != excluded_user_id:
+                selected = candidate
+                break
+        statement = insert(GroupQueueState).values(
+            chat_id=chat_id,
+            last_user_id=selected.user_id,
+        )
+        await self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[GroupQueueState.chat_id],
+                set_={"last_user_id": selected.user_id},
+            )
+        )
+        return selected
 
 
 class AmbiguousUsernameError(LookupError):
