@@ -26,7 +26,9 @@ class UserService:
             repo = UserRepository(session)
             if sender is not None:
                 await repo.remember(chat_id, sender)
-            return await repo.random_user(chat_id)
+            return await repo.random_user(
+                chat_id, excluded_user_id=sender.id if sender is not None else None
+            )
 
     async def set_participation(
         self, chat_id: int, sender: User, target: User, excluded: bool

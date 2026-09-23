@@ -135,14 +135,19 @@ class UserRepository:
         )
         return result.rowcount > 0
 
-    async def random_user(self, chat_id: int) -> GroupUser | None:
+    async def random_user(
+        self, chat_id: int, excluded_user_id: int | None = None
+    ) -> GroupUser | None:
+        conditions = [
+            GroupUser.chat_id == chat_id,
+            GroupUser.is_active.is_(True),
+            GroupUser.is_excluded.is_(False),
+        ]
+        if excluded_user_id is not None:
+            conditions.append(GroupUser.user_id != excluded_user_id)
         return await self.session.scalar(
             select(GroupUser)
-            .where(
-                GroupUser.chat_id == chat_id,
-                GroupUser.is_active.is_(True),
-                GroupUser.is_excluded.is_(False),
-            )
+            .where(*conditions)
             .order_by(func.random())
             .limit(1)
         )
