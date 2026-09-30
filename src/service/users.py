@@ -41,6 +41,10 @@ class UserService:
                 chat_id, excluded_user_id=sender.id if sender is not None else None
             )
 
+    async def queued_users(self, chat_id: int) -> list[GroupUser]:
+        async with self.database.get_session() as session:
+            return await UserRepository(session).queued_users(chat_id)
+
     async def set_participation(
         self, chat_id: int, sender: User, target: User, excluded: bool
     ) -> bool:
@@ -74,6 +78,55 @@ class UserService:
                 return None
             if not await repo.set_excluded(chat_id, user_id, excluded):
                 return None
+            return user
+
+    async def is_queue_excluded(self, chat_id: int, user_id: int) -> bool:
+        async with self.database.get_session() as session:
+            return await UserRepository(session).is_queue_excluded(chat_id, user_id)
+
+    async def queue_excluded_user_ids(
+        self, chat_id: int, user_ids: list[int]
+    ) -> set[int]:
+        async with self.database.get_session() as session:
+            return await UserRepository(session).queue_excluded_user_ids(
+                chat_id, user_ids
+            )
+
+    async def set_queue_participation(
+        self, chat_id: int, sender: User, target: User, excluded: bool
+    ) -> bool:
+        async with self.database.get_session() as session:
+            repo = UserRepository(session)
+            await repo.remember(chat_id, sender)
+            if target.id != sender.id:
+                await repo.remember(chat_id, target)
+            user = await repo.get_user(chat_id, target.id)
+            if user is None or not user.is_active:
+                return False
+            await repo.set_queue_excluded(chat_id, target.id, excluded)
+            return True
+
+    async def set_queue_participation_by_username(
+        self, chat_id: int, sender: User, username: str, excluded: bool
+    ) -> GroupUser | None:
+        async with self.database.get_session() as session:
+            repo = UserRepository(session)
+            await repo.remember(chat_id, sender)
+            target = await repo.get_by_username(chat_id, username)
+            if target is None or not target.is_active:
+                return None
+            await repo.set_queue_excluded(chat_id, target.user_id, excluded)
+            return target
+
+    async def set_queue_participation_for_user(
+        self, chat_id: int, user_id: int, excluded: bool
+    ) -> GroupUser | None:
+        async with self.database.get_session() as session:
+            repo = UserRepository(session)
+            user = await repo.get_user(chat_id, user_id)
+            if user is None or not user.is_active:
+                return None
+            await repo.set_queue_excluded(chat_id, user_id, excluded)
             return user
 
     async def observe_message(

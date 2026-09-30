@@ -50,10 +50,18 @@ def user_label(first_name: str, username: str | None) -> str:
 
 async def list_view(chat_id: int, page: int) -> tuple[str, InlineKeyboardMarkup]:
     count, page, users = await user_service.list_page(chat_id, page, PAGE_SIZE)
+    queue_excluded_ids = await user_service.queue_excluded_user_ids(
+        chat_id, [user.user_id for user in users]
+    )
     lines = [f"Участники в базе: {count}. Страница {page + 1}."]
     rows = []
     for user in users:
-        status = "вышел" if not user.is_active else "исключён" if user.is_excluded else "участвует"
+        if not user.is_active:
+            status = "вышел"
+        else:
+            random_status = "нет" if user.is_excluded else "да"
+            queue_status = "нет" if user.user_id in queue_excluded_ids else "да"
+            status = f"выбор: {random_status}; очередь: {queue_status}"
         handle = f"@{escape(user.username)}" if user.username else "без @username"
         lines.append(f"{handle} — {escape(user.first_name[:60])} ({status})")
         rows.append([button(user_label(user.first_name, user.username), f"admin:user:{user.user_id}:{page}")])
@@ -76,14 +84,31 @@ async def user_view(
     user = await user_service.get_user(chat_id, user_id)
     if user is None:
         return await list_view(chat_id, page)
-    status = "вышел из группы" if not user.is_active else "исключён из выбора" if user.is_excluded else "участвует в выборе"
+    queue_excluded = await user_service.is_queue_excluded(chat_id, user_id)
     handle = f"@{escape(user.username)}" if user.username else "нет @username"
-    text = f"Участник: {escape(user.first_name)}\nUsername: {handle}\nСтатус: {status}"
+    group_status = "в группе" if user.is_active else "вышел из группы"
+    random_status = "исключён" if user.is_excluded else "участвует"
+    queue_status = "исключён" if queue_excluded else "участвует"
+    text = (
+        f"Участник: {escape(user.first_name)}\n"
+        f"Username: {handle}\n"
+        f"Статус: {group_status}\n"
+        f"Случайный выбор: {random_status}\n"
+        f"Очередь: {queue_status}"
+    )
     rows = []
     if user.is_active:
         action = "Вернуть в выбор" if user.is_excluded else "Исключить из выбора"
         flag = 0 if user.is_excluded else 1
         rows.append([button(action, f"admin:toggle:{user_id}:{page}:{flag}")])
+        queue_action = "Вернуть в очередь" if queue_excluded else "Исключить из очереди"
+        queue_flag = 0 if queue_excluded else 1
+        rows.append([
+            button(
+                queue_action,
+                f"admin:queue_toggle:{user_id}:{page}:{queue_flag}",
+            )
+        ])
     rows.extend([
         [button("Изменить", f"admin:update:{user_id}:{page}")],
         [button("Удалить", f"admin:delete:{user_id}:{page}")],
@@ -228,6 +253,17 @@ async def admin_callback(query: CallbackQuery, state: FSMContext) -> None:
             if flag not in {0, 1}:
                 raise ValueError
             user = await user_service.set_participation_for_user(chat_id, user_id, bool(flag))
+            await reset_panel(state, panel_id)
+            text, markup = await user_view(chat_id, user_id, page)
+            if user is None:
+                text = "Участник неактивен или удалён.\n\n" + text
+        elif action[1] == "queue_toggle" and len(action) == 5:
+            user_id, page, flag = int(action[2]), max(0, int(action[3])), int(action[4])
+            if flag not in {0, 1}:
+                raise ValueError
+            user = await user_service.set_queue_participation_for_user(
+                chat_id, user_id, bool(flag)
+            )
             await reset_panel(state, panel_id)
             text, markup = await user_view(chat_id, user_id, page)
             if user is None:

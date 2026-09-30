@@ -22,3 +22,10 @@ class GroupQueueState(Base):
 
     chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     last_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class GroupQueueExclusion(Base):
+    __tablename__ = "group_queue_exclusions"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
