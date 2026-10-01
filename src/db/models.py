@@ -29,3 +29,11 @@ class GroupQueueExclusion(Base):
 
     chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+
+
+class GroupSelectionCooldown(Base):
+    __tablename__ = "group_selection_cooldowns"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    available_at: Mapped[int] = mapped_column(BigInteger, nullable=False)

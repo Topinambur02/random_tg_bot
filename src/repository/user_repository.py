@@ -1,9 +1,19 @@
+import time
+
 from aiogram.types import User
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import GroupQueueExclusion, GroupQueueState, GroupUser
+from db.models import (
+    GroupQueueExclusion,
+    GroupQueueState,
+    GroupSelectionCooldown,
+    GroupUser,
+)
+
+
+SELECTION_COOLDOWN_SECONDS = 2 * 60 * 60
 
 
 class UserRepository:
@@ -97,6 +107,12 @@ class UserRepository:
                 GroupQueueExclusion.user_id == user_id,
             )
         )
+        await self.session.execute(
+            delete(GroupSelectionCooldown).where(
+                GroupSelectionCooldown.chat_id == chat_id,
+                GroupSelectionCooldown.user_id == user_id,
+            )
+        )
         result = await self.session.execute(
             delete(GroupUser).where(
                 GroupUser.chat_id == chat_id, GroupUser.user_id == user_id
@@ -181,22 +197,47 @@ class UserRepository:
             )
         )
 
+    async def start_cooldown(self, chat_id: int, user_id: int, now: int) -> None:
+        available_at = now + SELECTION_COOLDOWN_SECONDS
+        statement = insert(GroupSelectionCooldown).values(
+            chat_id=chat_id, user_id=user_id, available_at=available_at
+        )
+        await self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[
+                    GroupSelectionCooldown.chat_id,
+                    GroupSelectionCooldown.user_id,
+                ],
+                set_={"available_at": available_at},
+            )
+        )
+
     async def random_user(
         self, chat_id: int, excluded_user_id: int | None = None
     ) -> GroupUser | None:
+        now = int(time.time())
         conditions = [
             GroupUser.chat_id == chat_id,
             GroupUser.is_active.is_(True),
             GroupUser.is_excluded.is_(False),
+            GroupUser.user_id.not_in(
+                select(GroupSelectionCooldown.user_id).where(
+                    GroupSelectionCooldown.chat_id == chat_id,
+                    GroupSelectionCooldown.available_at > now,
+                )
+            ),
         ]
         if excluded_user_id is not None:
             conditions.append(GroupUser.user_id != excluded_user_id)
-        return await self.session.scalar(
+        selected = await self.session.scalar(
             select(GroupUser)
             .where(*conditions)
             .order_by(func.random())
             .limit(1)
         )
+        if selected is not None:
+            await self.start_cooldown(chat_id, selected.user_id, now)
+        return selected
 
     async def queued_users(self, chat_id: int) -> list[GroupUser]:
         queue_exclusions = set(await self.session.scalars(

@@ -42,7 +42,10 @@ async def random_person(message: Message) -> None:
         return
     person = await user_service.random_user(message.chat.id, sender(message))
     if person is None:
-        await message.answer("Пока нет других участников для выбора.")
+        await message.answer(
+            "Сейчас нет доступных участников для выбора. "
+            "Проверьте исключения или дождитесь окончания двухчасового перерыва."
+        )
         return
     name = escape(person.first_name)
     await message.answer(
